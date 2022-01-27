@@ -35,20 +35,25 @@ namespace DictionaryBuilderApp
 
         public void Flush()
         {
-            using FileStream fs = new(Filepath, FileMode.Create);
-
-            try
+            using (FileStream fs = new(Filepath, FileMode.Open))
             {
-                var result = JsonSerializer.Deserialize<List<KeyValuePair<string, string>>>(fs);
-                WordPairBuffer.AddRange(result);
-            }
-            catch(Exception ex)
-            {
-                Console.WriteLine(ex.Message);
+                try
+                {
+                    var result = JsonSerializer.Deserialize<List<KeyValuePair<string, string>>>(fs);
+                    WordPairBuffer.AddRange(result);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.Message);
+                }
+
             }
 
-            JsonSerializer.Serialize(fs, WordPairBuffer);
-            WordPairBuffer.Clear();
+            using (FileStream fs = new(Filepath, FileMode.Create))
+            {
+                JsonSerializer.Serialize(fs, WordPairBuffer);
+                WordPairBuffer.Clear();
+            }
         }
 
     }
