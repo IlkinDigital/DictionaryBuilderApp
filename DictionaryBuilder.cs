@@ -5,8 +5,34 @@ namespace DictionaryBuilderApp
 {
     public class DictionaryBuilder
     {
-        public string FirstLang { get; private set; }
-        public string SecondLang { get; private set; }
+        static void Flush(string filepath, List<TranslationPair> buffer)
+        {
+            using (FileStream fs = new(filepath, FileMode.Open, FileAccess.Read))
+            {
+                try
+                {
+                    var result = JsonSerializer.Deserialize<List<TranslationPair>>(fs);
+
+                    if (result != null)
+                        buffer.AddRange(result);
+                }
+                catch (JsonException) { } // Ignore Json Exception
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.Message);
+                }
+
+            }
+
+            using (FileStream fs = new(filepath, FileMode.Create, FileAccess.Write))
+            {
+                JsonSerializer.Serialize(fs, buffer);
+            }
+        }
+
+        public string SourceLang { get; private set; }
+        public string TranslationLang { get; private set; }
+        private List<TranslationPair> WordBatch { get; init; } = new List<TranslationPair>();
 
         private string _filepath = "";
         public string Filepath 
@@ -15,46 +41,182 @@ namespace DictionaryBuilderApp
             set
             {
                 _filepath = value;
+                // Insures that file will be opened or created
                 using FileStream fs = new(_filepath, FileMode.OpenOrCreate);
             }
         }
 
-        private List<KeyValuePair<string, string>> WordPairBuffer { get; init; } = new List<KeyValuePair<string, string>>();
-
+        
         public DictionaryBuilder(string firstLang, string secondLang, string filepath)
         {
-            FirstLang = firstLang;
-            SecondLang = secondLang;
+            SourceLang = firstLang;
+            TranslationLang = secondLang;
             Filepath = filepath;
         }
 
-        public void Add(KeyValuePair<string, string> wordPair)
+        public void Add(string source, string[] translations)
         {
-            WordPairBuffer.Add(wordPair);
+            Submit(source, translations);
+            Flush();
+        }
+        public void Add(List<TranslationPair> pairs)
+        {
+            foreach (var pair in pairs)
+            {
+                Submit(pair);
+            }
+
+            Flush();
         }
 
+        public void Submit(TranslationPair pair)
+        {
+            WordBatch.Add(pair);
+        }
+        public void Submit(string source, string[] translations)
+        {
+            WordBatch.Add(new TranslationPair(source, translations.ToList()));
+        }
+
+        // Clears Word Batch and appends it into a json file 
         public void Flush()
         {
-            using (FileStream fs = new(Filepath, FileMode.Open))
-            {
-                try
-                {
-                    var result = JsonSerializer.Deserialize<List<KeyValuePair<string, string>>>(fs);
-                    WordPairBuffer.AddRange(result);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine(ex.Message);
-                }
-
-            }
-
-            using (FileStream fs = new(Filepath, FileMode.Create))
-            {
-                JsonSerializer.Serialize(fs, WordPairBuffer);
-                WordPairBuffer.Clear();
-            }
+            Flush(Filepath, WordBatch);
+            WordBatch.Clear();
         }
 
+        public List<TranslationPair> GetAsList()
+        {
+            using FileStream fs = new(Filepath, FileMode.Open, FileAccess.Read);
+
+            var dict = JsonSerializer.Deserialize<List<TranslationPair>>(fs);
+
+            if (dict != null)
+                return dict;
+            
+            return new List<TranslationPair>();
+        }
+        List<string> GetTranslations(string sourceWord)
+        {
+            var dict = GetAsList();
+
+            foreach (var item in dict)
+            {
+                if (sourceWord == item.SourceWord)
+                    return item.Translations;
+            }
+
+            throw new Exception("Specified source word doesn't exist in the dictionary!");
+        }
+        
+        public void DeleteTranslationPair(string sourceWord)
+        {
+            var dict = GetAsList();
+
+            bool found = false;
+            foreach (var item in dict)
+            {
+                if (item.SourceWord == sourceWord)
+                {
+                    dict.Remove(item);
+                    found = true;
+                }
+            }
+
+            if (!found)
+                throw new Exception("Translation pair with specified source doesn't exist in the dictionary!");
+
+            Clear();
+            Flush(Filepath, dict);
+        }
+        public void DeleteTranslation(string sourceWord, string translation)
+        {
+            var dict = GetAsList();
+
+            bool srcFound = false;
+            bool translationFound = false;
+            foreach (var item in dict)
+            {
+                if (item.SourceWord == sourceWord && item.Translations.Count > 1)
+                {
+                    foreach (var word in item.Translations)
+                    {
+                        if (word == translation)
+                            item.Translations.Remove(word);
+
+                        translationFound = true;
+                    }
+
+                    srcFound = true;
+                }
+            }
+
+            if (!srcFound)
+                throw new Exception("Specified source word doesn't exist in the dictionary!");
+            if (!translationFound)
+                throw new Exception("Specified translation doesn't exist in the dictionary!");
+
+            Clear();
+            Flush(Filepath, dict);
+        }
+
+        public void EditSourceWord(string originalSrcWord, string newSrcWord)
+        {
+            var dict = GetAsList();
+
+            bool found = false;
+            foreach (var item in dict)
+            {
+                if (item.SourceWord == originalSrcWord)
+                {
+                    item.SourceWord = newSrcWord;
+                    found = true;
+                }
+            }
+
+            if (!found)
+                throw new Exception("Specified original source word doesn't exist in the dictionary!");
+
+            Clear();
+            Flush(Filepath, dict);
+        }
+        public void EditTranslations(string sourceWord, List<string> newTranslations)
+        {
+            var dict = GetAsList();
+
+            bool found = false;
+            foreach (var item in dict)
+            {
+                if (item.SourceWord == sourceWord)
+                {
+                    item.Translations = newTranslations;
+                    found = true;
+                }
+            }
+
+            if (!found)
+                throw new Exception("Specified source word doesn't exist in the dictionary!");
+
+            Clear();
+            Flush(Filepath, dict);
+        }
+
+        public void Clear()
+        {
+            using FileStream fs = new(Filepath, FileMode.Create);
+        }
+
+        public override string ToString()
+        {
+            string result = $"'{SourceLang}' to '{TranslationLang}' Dictionary:\n";
+            var dict = GetAsList();
+
+            foreach (var item in dict)
+            {
+                result += $"\t{item}\n";
+            }
+
+            return result;
+        }
     }
 }
