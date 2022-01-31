@@ -92,7 +92,7 @@ namespace DictionaryBuilderApp
             var dict = JsonSerializer.Deserialize<List<TranslationPair>>(fs);
 
             if (dict != null)
-                return dict;
+                return new List<TranslationPair>(dict);
             
             return new List<TranslationPair>();
         }
@@ -112,13 +112,16 @@ namespace DictionaryBuilderApp
         public void DeleteTranslationPair(string sourceWord)
         {
             var dict = GetAsList();
+            List<TranslationPair> removed = new();
 
             bool found = false;
             foreach (var item in dict)
             {
                 if (item.SourceWord == sourceWord)
                 {
-                    dict.Remove(item);
+                    if (!found)
+                        removed = new(dict);
+                    removed.Remove(item);
                     found = true;
                 }
             }
@@ -127,7 +130,7 @@ namespace DictionaryBuilderApp
                 throw new Exception("Translation pair with specified source doesn't exist in the dictionary!");
 
             Clear();
-            Flush(Filepath, dict);
+            Flush(Filepath, found ? removed : dict);
         }
         public void DeleteTranslation(string sourceWord, string translation)
         {
@@ -135,16 +138,26 @@ namespace DictionaryBuilderApp
 
             bool srcFound = false;
             bool translationFound = false;
-            foreach (var item in dict)
+            for (int i = 0; i < dict.Count; i++)
             {
-                if (item.SourceWord == sourceWord && item.Translations.Count > 1)
+                if (dict[i].SourceWord == sourceWord)
                 {
-                    foreach (var word in item.Translations)
+                    if (dict[i].Translations.Count > 1)
                     {
-                        if (word == translation)
-                            item.Translations.Remove(word);
+                        List<string> modTranslations = new();
+                        foreach (var word in dict[i].Translations)
+                        {
+                            if (word == translation)
+                            {
+                                if (!translationFound)
+                                    modTranslations = new(dict[i].Translations);
 
-                        translationFound = true;
+                                modTranslations.Remove(word);
+                                translationFound = true;
+                            }
+                        }
+
+                        dict[i].Translations = modTranslations;
                     }
 
                     srcFound = true;
@@ -154,7 +167,7 @@ namespace DictionaryBuilderApp
             if (!srcFound)
                 throw new Exception("Specified source word doesn't exist in the dictionary!");
             if (!translationFound)
-                throw new Exception("Specified translation doesn't exist in the dictionary!");
+                throw new Exception("Specified translation doesn't exist or is only one!");
 
             Clear();
             Flush(Filepath, dict);
